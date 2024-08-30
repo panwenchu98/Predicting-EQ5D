@@ -1,0 +1,220 @@
+---
+title: "Mapping to EQ-5D Model for MHQ"
+author: "Wenchu Pan"
+date: "2024/03/24"
+output:
+  pdf_document: default
+  html_document: default
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r message=FALSE, warning=FALSE,results=FALSE}
+library(readr)
+library(lme4)
+library(dplyr)
+library(ggplot2)
+library(quantreg)
+library(AER)
+library(poLCA)
+library(provenance)
+library(nlme)
+library(gee)
+library(geepack)
+library(clubSandwich)
+library(dplyr)
+library(gtsummary)
+library(ggplot2)
+library(car)
+library(flextable)
+library(broom.mixed)
+dir_data="D:/Desktop/Lu Group/Projects/Mapping to EQ5D/data/data/"           #directory for data
+dir_results="D:/Desktop/Lu Group/Projects/Mapping to EQ5D/data/results/"
+options(digits=5)
+```
+
+
+
+```{r message=FALSE, warning=FALSE,results=FALSE}
+predict_EQ5D=function(data,score,method=NULL,filename=NULL){
+  n=nrow(data)
+  data$EQ5D_1=ifelse(data$EQ5D==1,1,0)
+  data$Diagnosis=factor(ordered(data$Diagnosis,levels=c(1,2,3,4,5)),order=FALSE)
+  levels(data$Diagnosis)=c("Carpal Tunnel Syndrome","Thumb Arthritis","Distal Radius Fracture","Hand Tendon Injury","Trigger Finger")
+  data$Diagnosis=relevel(factor(data$Diagnosis,order=FALSE),ref="Trigger Finger")
+
+  if (is.null(filename)){
+    if (score=="DASH"){
+      load(file="DASH_Models.RData")
+    }
+    if (score=="MHQ"){
+      load(file="MHQ_Models.RData")
+    }
+  }else{
+    load(file=filename)
+  }
+  if (is.null(method)){
+    if (score=="DASH") method="OLS"
+    if (score=="MHQ") method="RM-L"
+  }
+  
+  
+  if (method=="OLS"){
+    data$predict=predict(model1,data)
+    return(data)
+  }
+  if (method=="Tobit"){
+    data$predict=predict(model2,data)
+    return(data)
+  }
+  if (method=="TPM"){
+    data$pred3_1=predict(model3_1,data,type="response")
+    data$pred3_2=predict(model3_2,data)
+    data$pred3_2=ifelse(data$pred3_2>1,1,data$pred3_2)
+    data$predict=data$pred3_1+(1-data$pred3_1)*data$pred3_2
+    return(data)
+  }
+  if (method=="TPM-L"){
+    data$pred4_1=predict(model4_1,data,type="response")
+    data$pred4_2=1-exp(predict(model4_2,data))
+    data$predict=1-(1-data$pred4_1)*exp(predict(model4_2,data)+(summary(model4_2)$sigma)^2/2)
+    return(data)
+  }
+  if (method=="RM-L"){
+    pred5_1=predict(object=model5_1,newdata=data,type="probs")
+    if (ncol(pred5_1)<5) pred5_1=cbind(pred5_1,matrix(0,n,5-ncol(pred5_1)))
+    data$pred5_1=0.096*pred5_1[,2]+0.122*pred5_1[,3]+0.237*pred5_1[,4]+0.322*pred5_1[,5]
+
+    pred5_2=predict(object=model5_2,newdata=data,type="probs")
+    if (ncol(pred5_2)<5) pred5_2=cbind(pred5_2,matrix(0,n,5-ncol(pred5_2)))
+    data$pred5_2=0.089*pred5_2[,2]+0.107*pred5_2[,3]+0.22*pred5_2[,4]+0.261*pred5_2[,5]
+
+    pred5_3=predict(object=model5_3,newdata=data,type="probs")
+    if (ncol(pred5_3)<5) pred5_3=cbind(pred5_3,matrix(0,n,5-ncol(pred5_3)))
+    data$pred5_3=0.068*pred5_3[,2]+0.101*pred5_3[,3]+0.255*pred5_3[,4]+0.255*pred5_3[,5]
+
+    pred5_4=predict(object=model5_4,newdata=data,type="probs")
+    if (ncol(pred5_4)<5) pred5_4=cbind(pred5_4,matrix(0,n,5-ncol(pred5_4)))
+    data$pred5_4=0.06*pred5_4[,2]+0.098*pred5_4[,3]+0.318*pred5_4[,4]+0.414*pred5_4[,5]
+
+    pred5_5=predict(object=model5_5,newdata=data,type="probs")
+    if (ncol(pred5_5)<5) pred5_5=cbind(pred5_5,matrix(0,n,5-ncol(pred5_5)))
+    data$pred5_5=0.057*pred5_5[,2]+0.123*pred5_5[,3]+0.299*pred5_5[,4]+0.321*pred5_5[,5]
+
+    data$predict=1-(data$pred5_1+data$pred5_2+data$pred5_3+data$pred5_4+data$pred5_5)
+    return(data)
+  }
+  if (method=="RM-NB"){
+    data$pred6_1_1=predict(model6_1,data,type="response")
+    data$pred6_1=0.096*dnbinom(1,mu=data$pred6_1_1,size=model6_1$theta)+0.122*dnbinom(2,mu=data$pred6_1_1,size=model6_1$theta)+0.237*dnbinom(3,mu=data$pred6_1_1,size=model6_1$theta)+0.322*(1-pnbinom(3,mu=data$pred6_1_1,size=model6_1$theta))
+
+    data$pred6_2_1=predict(model6_2,data,type="response")
+    data$pred6_2=0.089*dnbinom(1,mu=data$pred6_2_1,size=model6_2$theta)+0.107*dnbinom(2,mu=data$pred6_2_1,size=model6_2$theta)+0.22*dnbinom(3,mu=data$pred6_2_1,size=model6_2$theta)+0.261*(1-pnbinom(3,mu=data$pred6_2_1,size=model6_2$theta))
+  
+    data$pred6_3_1=predict(model6_3,data,type="response")
+    data$pred6_3=0.068*dnbinom(1,mu=data$pred6_3_1,size=model6_3$theta)+0.101*dnbinom(2,mu=data$pred6_3_1,size=model6_3$theta)+0.255*dnbinom(3,mu=data$pred6_3_1,size=model6_3$theta)+0.255*(1-pnbinom(3,mu=data$pred6_3_1,size=model6_3$theta))
+
+    data$pred6_4_1=predict(model6_4,data,type="response")
+    data$pred6_4=0.06*dnbinom(1,mu=data$pred6_4_1,size=model6_4$theta)+0.098*dnbinom(2,mu=data$pred6_4_1,size=model6_4$theta)+0.318*dnbinom(3,mu=data$pred6_4_1,size=model6_4$theta)+0.414*(1-pnbinom(3,mu=data$pred6_4_1,size=model6_4$theta))
+
+    data$pred6_5_1=predict(model6_5,data,type="response")
+    data$pred6_5=0.057*dnbinom(1,mu=data$pred6_5_1,size=model6_5$theta)+0.123*dnbinom(2,mu=data$pred6_5_1,size=model6_5$theta)+0.299*dnbinom(3,mu=data$pred6_5_1,size=model6_5$theta)+0.321*(1-pnbinom(3,mu=data$pred6_5_1,size=model6_5$theta))
+
+    data$predict=1-(data$pred6_1+data$pred6_2+data$pred6_3+data$pred6_4+data$pred6_5)
+    return(data)
+  }
+}
+```
+
+
+```{r message=FALSE, warning=FALSE,results=FALSE}
+fit_EQ5D=function(data,score,methods=rep(TRUE,TRUE,TRUE,TRUE,FALSE,FALSE),filename='CustomModel.RData'){
+  n=nrow(data)
+  data$EQ5D_1=ifelse(data$EQ5D==1,1,0)
+  data$Diagnosis=factor(ordered(data$Diagnosis,levels=c(1,2,3,4,5)),order=FALSE)
+  levels(data$Diagnosis)=c("Carpal Tunnel Syndrome","Thumb Arthritis","Distal Radius Fracture","Hand Tendon Injury","Trigger Finger")
+  data$Diagnosis=relevel(factor(data$Diagnosis,order=FALSE),ref="Trigger Finger")
+ 
+  if (score=="MHQ"){
+    lists=c()
+    if (methods[1]){
+      model1=lm(EQ5D~MHQ_Injured+Age+Gender+Diagnosis,data=data)
+      lists=c(lists,"model1")
+    } 
+    if (methods[2]){
+      model2=tobit(EQ5D~MHQ_Injured+Age+Gender+Diagnosis,right=1,data=data)
+      lists=c(lists,"model2")
+    }
+    if (methods[3]){
+      model3_1=glm(EQ5D_1~MHQ_Injured+Age+Gender+Diagnosis,data=data,family=binomial)
+      model3_2=lm(EQ5D~MHQ_Injured+Age+Gender+Diagnosis,data=data[data$EQ5D_1==0,])
+      lists=c(lists,"model3_1","model3_2")
+    }
+    if (methods[4]){
+      model4_1=glm(EQ5D_1~MHQ_Injured+Age+Gender+Diagnosis,data=data,family=binomial)
+      model4_2=lm(log(1-EQ5D)~MHQ_Injured+Age+Gender+Diagnosis,data=data[data$EQ5D_1==0,])
+      lists=c(lists,"model4_1","model4_2")
+    }
+    if (methods[5]){
+      model5_1=polr(factor(Mobility)~MHQ_Injured+Age+Gender+Diagnosis,data=data)
+      model5_2=polr(factor(SelfCare)~MHQ_Injured+Age+Gender+Diagnosis,data=data)
+      model5_3=polr(factor(UsusalActivities)~MHQ_Injured+Age+Gender+Diagnosis,data=data)
+      model5_4=polr(factor(PainDiscomfort)~MHQ_Injured+Age+Gender+Diagnosis,data=data)
+      model5_5=polr(factor(AnxietyDepression)~MHQ_Injured+Age+Gender+Diagnosis,data=data)
+      lists=c(lists,"model5_1","model5_2","model5_3","model5_4","model5_5")
+    }
+    if (methods[6]){
+      model6_1=glm.nb(Mobility-1~MHQ_Injured+Age+Gender+Diagnosis,data=data)
+      model6_2=glm.nb(SelfCare-1~MHQ_Injured+Age+Gender+Diagnosis,data=data)
+      model6_3=glm.nb(UsusalActivities-1~MHQ_Injured+Age+Gender+Diagnosis,data=data)
+      model6_4=glm.nb(PainDiscomfort-1~MHQ_Injured+Age+Gender+Diagnosis,data=data)
+      model6_5=glm.nb(AnxietyDepression-1~MHQ_Injured+Age+Gender+Diagnosis,data=data)
+      lists=c(lists,"model6_1","model6_2","model6_3","model6_4","model6_5")
+    }
+    save(list=lists,file=filename)
+  } 
+  
+  
+  if (score=="DASH"){
+  lists=c()
+  if (methods[1]){
+    model1=lm(EQ5D~DASH+Age+Gender+Diagnosis,data=data)
+    lists=c(lists,"model1")
+  } 
+  if (methods[2]){
+    model2=tobit(EQ5D~DASH+Age+Gender+Diagnosis,right=1,data=data)
+    lists=c(lists,"model2")
+  }
+  if (methods[3]){
+    model3_1=glm(EQ5D_1~DASH+Age+Gender+Diagnosis,data=data,family=binomial)
+    model3_2=lm(EQ5D~DASH+Age+Gender+Diagnosis,data=data[data$EQ5D_1==0,])
+    lists=c(lists,"model3_1","model3_2")
+  }
+  if (methods[4]){
+    model4_1=glm(EQ5D_1~DASH+Age+Gender+Diagnosis,data=data,family=binomial)
+    model4_2=lm(log(1-EQ5D)~DASH+Age+Gender+Diagnosis,data=data[data$EQ5D_1==0,])
+    lists=c(lists,"model4_1","model4_2")
+  }
+  if (methods[5]){
+    model5_1=polr(factor(Mobility)~DASH+Age+Gender+Diagnosis,data=data)
+    model5_2=polr(factor(SelfCare)~DASH+Age+Gender+Diagnosis,data=data)
+    model5_3=polr(factor(UsusalActivities)~DASH+Age+Gender+Diagnosis,data=data)
+    model5_4=polr(factor(PainDiscomfort)~DASH+Age+Gender+Diagnosis,data=data)
+    model5_5=polr(factor(AnxietyDepression)~DASH+Age+Gender+Diagnosis,data=data)
+    lists=c(lists,"model5_1","model5_2","model5_3","model5_4","model5_5")
+  }
+  if (methods[6]){
+    model6_1=glm.nb(Mobility-1~DASH+Age+Gender+Diagnosis,data=data)
+    model6_2=glm.nb(SelfCare-1~DASH+Age+Gender+Diagnosis,data=data)
+    model6_3=glm.nb(UsusalActivities-1~DASH+Age+Gender+Diagnosis,data=data)
+    model6_4=glm.nb(PainDiscomfort-1~DASH+Age+Gender+Diagnosis,data=data)
+    model6_5=glm.nb(AnxietyDepression-1~DASH+Age+Gender+Diagnosis,data=data)
+    lists=c(lists,"model6_1","model6_2","model6_3","model6_4","model6_5")
+  }
+  save(list=lists,file=filename)
+} 
+}
+```
+
+
